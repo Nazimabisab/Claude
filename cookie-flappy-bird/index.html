@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cookie Flappy Bird</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a0a00;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    h1 {
+      color: #f4c06c;
+      font-size: 2rem;
+      letter-spacing: 2px;
+      margin-bottom: 12px;
+      text-shadow: 0 0 16px #c87941, 0 2px 0 #7a3c10;
+    }
+
+    #game-wrapper {
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      border: 4px solid #c87941;
+      border-radius: 12px;
+      box-shadow: 0 0 32px #c8794180, 0 0 8px #f4c06c40;
+    }
+
+    #ui {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    #score-display {
+      color: #fff8e7;
+      font-size: 2.5rem;
+      font-weight: bold;
+      margin-top: 18px;
+      text-shadow: 0 2px 6px #7a3c10, 0 0 12px #f4c06c;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(26,10,0,0.72);
+      border-radius: 8px;
+    }
+
+    #overlay h2 {
+      font-size: 2.2rem;
+      color: #f4c06c;
+      text-shadow: 0 0 16px #c87941;
+      margin-bottom: 10px;
+    }
+
+    #overlay p {
+      color: #ffe9c2;
+      font-size: 1.05rem;
+      margin-bottom: 6px;
+    }
+
+    #overlay .best {
+      color: #ffcc66;
+      font-size: 1rem;
+      margin-bottom: 24px;
+    }
+
+    #start-btn {
+      pointer-events: all;
+      background: linear-gradient(135deg, #c87941, #f4c06c);
+      color: #3d1a00;
+      border: none;
+      border-radius: 30px;
+      padding: 14px 40px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 18px #c8794180;
+      transition: transform 0.1s, box-shadow 0.1s;
+      letter-spacing: 1px;
+    }
+
+    #start-btn:hover {
+      transform: scale(1.07);
+      box-shadow: 0 6px 28px #f4c06c90;
+    }
+
+    #start-btn:active { transform: scale(0.97); }
+
+    #hint {
+      color: #c8a97a;
+      font-size: 0.85rem;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🍪 Cookie Flappy Bird</h1>
+  <div id="game-wrapper">
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+      <div id="score-display">0</div>
+      <div id="overlay">
+        <h2>🍪 Cookie Bird</h2>
+        <p>Esquiva los vasos de leche</p>
+        <p class="best" id="best-score">Mejor: 0</p>
+        <button id="start-btn">¡Jugar!</button>
+        <div id="hint">Clic · Espacio · Toca</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const scoreDisplay = document.getElementById('score-display');
+    const bestScoreEl = document.getElementById('best-score');
+    const startBtn = document.getElementById('start-btn');
+    const overlayTitle = overlay.querySelector('h2');
+
+    // ── Tamaño responsivo ──
+    const W = 400, H = 600;
+    canvas.width = W;
+    canvas.height = H;
+
+    // ── Estado ──
+    let state = 'idle'; // idle | playing | dead
+    let score = 0, bestScore = 0;
+    let frameId;
+
+    // ── Cookie (jugador) ──
+    const cookie = {
+      x: 90,
+      y: H / 2,
+      r: 24,
+      vy: 0,
+      gravity: 0.45,
+      jump: -9,
+      angle: 0,
+      chips: [],          // posiciones relativas de chispas
+      init() {
+        this.chips = Array.from({length: 7}, () => ({
+          dx: (Math.random() - 0.5) * this.r * 1.1,
+          dy: (Math.random() - 0.5) * this.r * 1.1,
+          size: 3 + Math.random() * 3.5,
+        }));
+      },
+      flap() { this.vy = this.jump; },
+      update() {
+        this.vy += this.gravity;
+        this.y += this.vy;
+        this.angle = Math.min(Math.max(this.vy * 3, -25), 80) * Math.PI / 180;
+      },
+      draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+
+        // Sombra de la galleta
+        ctx.shadowColor = '#7a3c10';
+        ctx.shadowBlur = 10;
+
+        // Cuerpo
+        const grad = ctx.createRadialGradient(-6, -6, 2, 0, 0, this.r);
+        grad.addColorStop(0, '#f4c06c');
+        grad.addColorStop(0.6, '#d4884a');
+        grad.addColorStop(1, '#a85520');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Borde tostado
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#7a3c10';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Chispas de chocolate
+        ctx.shadowBlur = 0;
+        for (const c of this.chips) {
+          if (Math.sqrt(c.dx**2 + c.dy**2) + c.size/2 > this.r - 2) continue;
+          ctx.fillStyle = '#3d1800';
+          ctx.beginPath();
+          ctx.ellipse(c.dx, c.dy, c.size * 0.7, c.size * 0.5, Math.random(), 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Ojos
+        ctx.fillStyle = '#3d1800';
+        ctx.beginPath(); ctx.arc(-8, -8, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(8, -8, 3, 0, Math.PI * 2); ctx.fill();
+
+        // Brillo ojo
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.beginPath(); ctx.arc(-7, -9, 1.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(9, -9, 1.2, 0, Math.PI * 2); ctx.fill();
+
+        // Sonrisa
+        ctx.strokeStyle = '#3d1800';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 4, 8, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    };
+
+    // ── Obstáculos (vasos de leche) ──
+    const PIPE_W = 52;
+    const GAP = 155;
+    let pipes = [];
+    let pipeTimer = 0;
+    const PIPE_INTERVAL = 90; // frames
+    const PIPE_SPEED = 2.8;
+
+    function spawnPipe() {
+      const minY = 80, maxY = H - 80 - GAP;
+      const topH = minY + Math.random() * (maxY - minY);
+      pipes.push({ x: W + PIPE_W, topH, scored: false });
+    }
+
+    function drawMilkGlass(x, height, flipped) {
+      // Dibuja un vaso de leche estilizado
+      ctx.save();
+      if (flipped) {
+        ctx.translate(x + PIPE_W / 2, height);
+        ctx.scale(1, -1);
+        ctx.translate(-PIPE_W / 2, 0);
+      } else {
+        ctx.translate(x, 0);
+      }
+
+      const w = PIPE_W, h = height;
+
+      // Sombra del vaso
+      ctx.shadowColor = 'rgba(0,0,0,0.4)';
+      ctx.shadowBlur = 8;
+
+      // Cuerpo del vaso (trapezoide)
+      const bw = w * 0.82; // ancho inferior
+      const tw = w;        // ancho superior
+      const off = (tw - bw) / 2;
+
+      const vasGrad = ctx.createLinearGradient(0, 0, w, 0);
+      vasGrad.addColorStop(0, '#e8f4ff');
+      vasGrad.addColorStop(0.2, '#ffffff');
+      vasGrad.addColorStop(0.7, '#cce3f5');
+      vasGrad.addColorStop(1, '#a8c8e8');
+
+      ctx.fillStyle = vasGrad;
+      ctx.beginPath();
+      ctx.moveTo(off, 0);
+      ctx.lineTo(tw - off, 0);
+      ctx.lineTo(tw, h - 10);
+      ctx.lineTo(0, h - 10);
+      ctx.closePath();
+      ctx.fill();
+
+      // Base del vaso
+      ctx.fillStyle = '#a8c8e8';
+      ctx.fillRect(-2, h - 14, w + 4, 14);
+      ctx.fillStyle = '#8ab4d4';
+      ctx.fillRect(0, h - 10, w, 6);
+
+      // Leche dentro
+      ctx.shadowBlur = 0;
+      const milkGrad = ctx.createLinearGradient(off + 4, 20, tw - off - 4, 20);
+      milkGrad.addColorStop(0, '#f0faff');
+      milkGrad.addColorStop(0.5, '#ffffff');
+      milkGrad.addColorStop(1, '#daeef8');
+      ctx.fillStyle = milkGrad;
+      ctx.beginPath();
+      ctx.moveTo(off + 4, 16);
+      ctx.lineTo(tw - off - 4, 16);
+      ctx.lineTo(tw - 4, h - 14);
+      ctx.lineTo(4, h - 14);
+      ctx.closePath();
+      ctx.fill();
+
+      // Borde del vaso
+      ctx.strokeStyle = '#6a9fc0';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(off, 0);
+      ctx.lineTo(tw - off, 0);
+      ctx.lineTo(tw, h - 10);
+      ctx.lineTo(0, h - 10);
+      ctx.closePath();
+      ctx.stroke();
+
+      // Brillo
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(off + 6, 8);
+      ctx.lineTo(off + 6, h - 16);
+      ctx.stroke();
+
+      // Gotitas de leche decorativas
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(tw * 0.55 + i * 6, 28 + i * 18, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    function updatePipes() {
+      pipeTimer++;
+      if (pipeTimer >= PIPE_INTERVAL) { spawnPipe(); pipeTimer = 0; }
+      for (const p of pipes) p.x -= PIPE_SPEED;
+      pipes = pipes.filter(p => p.x + PIPE_W > -10);
+    }
+
+    function drawPipes() {
+      for (const p of pipes) {
+        // Vaso superior (invertido)
+        drawMilkGlass(p.x, p.topH, true);
+        // Vaso inferior
+        drawMilkGlass(p.x, H - p.topH - GAP, false);
+        // Mover vaso inferior a su posición
+        ctx.save();
+        ctx.translate(p.x, p.topH + GAP);
+        drawMilkGlass(0, H - p.topH - GAP, false);
+        ctx.restore();
+        // Limpia el dibujo duplicado - redibujamos correctamente:
+      }
+    }
+
+    // ── Partículas ──
+    let particles = [];
+
+    function spawnCrumbs(x, y) {
+      for (let i = 0; i < 14; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 5;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          r: 3 + Math.random() * 5,
+          alpha: 1,
+          color: ['#f4c06c','#d4884a','#a85520','#3d1800'][Math.floor(Math.random()*4)],
+          life: 0,
+        });
+      }
+    }
+
+    function updateParticles() {
+      for (const p of particles) {
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.18;
+        p.alpha -= 0.03;
+        p.life++;
+      }
+      particles = particles.filter(p => p.alpha > 0);
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // ── Fondo ──
+    let bgStars = Array.from({length: 30}, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 1 + Math.random() * 2,
+      alpha: 0.3 + Math.random() * 0.5,
+    }));
+
+    // Floating cookie crumbs in bg
+    let bgCrumbs = Array.from({length: 12}, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 2 + Math.random() * 4,
+      vy: 0.3 + Math.random() * 0.5,
+      alpha: 0.1 + Math.random() * 0.2,
+      color: ['#f4c06c','#d4884a','#a85520'][Math.floor(Math.random()*3)],
+    }));
+
+    function drawBackground() {
+      // Gradiente de fondo tipo noche cálida
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#0d0500');
+      bg.addColorStop(0.5, '#1a0a00');
+      bg.addColorStop(1, '#2a1200');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Estrellas
+      for (const s of bgStars) {
+        ctx.save();
+        ctx.globalAlpha = s.alpha;
+        ctx.fillStyle = '#ffe9c2';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Migas flotantes
+      for (const c of bgCrumbs) {
+        c.y += c.vy;
+        if (c.y > H + 10) { c.y = -10; c.x = Math.random() * W; }
+        ctx.save();
+        ctx.globalAlpha = c.alpha;
+        ctx.fillStyle = c.color;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Suelo
+      const floorGrad = ctx.createLinearGradient(0, H - 40, 0, H);
+      floorGrad.addColorStop(0, '#5a2e00');
+      floorGrad.addColorStop(1, '#3d1a00');
+      ctx.fillStyle = floorGrad;
+      ctx.fillRect(0, H - 36, W, 36);
+
+      // Detalle del suelo
+      ctx.strokeStyle = '#c87941';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, H - 36);
+      ctx.lineTo(W, H - 36);
+      ctx.stroke();
+
+      // Puntitos en el suelo
+      ctx.fillStyle = '#c8794140';
+      for (let i = 0; i < W; i += 22) {
+        ctx.beginPath();
+        ctx.arc(i + 10, H - 18, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ── Colisión ──
+    function checkCollision() {
+      const r = cookie.r - 4;
+      // Suelo y techo
+      if (cookie.y + r > H - 36 || cookie.y - r < 0) return true;
+      for (const p of pipes) {
+        const left = p.x, right = p.x + PIPE_W;
+        const cx = cookie.x, cy = cookie.y;
+        if (cx + r > left && cx - r < right) {
+          if (cy - r < p.topH || cy + r > p.topH + GAP) return true;
+        }
+      }
+      return false;
+    }
+
+    // ── Score ──
+    function checkScore() {
+      for (const p of pipes) {
+        if (!p.scored && p.x + PIPE_W < cookie.x) {
+          p.scored = true;
+          score++;
+          scoreDisplay.textContent = score;
+        }
+      }
+    }
+
+    // ── Loop ──
+    function gameLoop() {
+      ctx.clearRect(0, 0, W, H);
+      drawBackground();
+
+      // Pipes — dibujamos correctamente en dos pasadas
+      for (const p of pipes) {
+        // Vaso superior (invertido)
+        ctx.save();
+        ctx.translate(p.x, p.topH);
+        ctx.scale(1, -1);
+        drawMilkGlassRaw(0, p.topH);
+        ctx.restore();
+
+        // Vaso inferior
+        ctx.save();
+        ctx.translate(p.x, p.topH + GAP);
+        drawMilkGlassRaw(0, H - p.topH - GAP);
+        ctx.restore();
+      }
+
+      cookie.update();
+      cookie.draw();
+      updateParticles();
+      drawParticles();
+
+      if (state === 'playing') {
+        updatePipes();
+        checkScore();
+        if (checkCollision()) {
+          die();
+          return;
+        }
+      }
+
+      frameId = requestAnimationFrame(gameLoop);
+    }
+
+    // Versión "raw" del vaso (sin translate externo)
+    function drawMilkGlassRaw(x, height) {
+      if (height <= 0) return;
+      const w = PIPE_W, h = height;
+      const bw = w * 0.82;
+      const tw = w;
+      const off = (tw - bw) / 2;
+
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur = 8;
+
+      const vasGrad = ctx.createLinearGradient(x, 0, x + w, 0);
+      vasGrad.addColorStop(0, '#e8f4ff');
+      vasGrad.addColorStop(0.2, '#ffffff');
+      vasGrad.addColorStop(0.7, '#cce3f5');
+      vasGrad.addColorStop(1, '#a8c8e8');
+
+      ctx.fillStyle = vasGrad;
+      ctx.beginPath();
+      ctx.moveTo(x + off, 0);
+      ctx.lineTo(x + tw - off, 0);
+      ctx.lineTo(x + tw, h - 10);
+      ctx.lineTo(x, h - 10);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#a8c8e8';
+      ctx.fillRect(x - 2, h - 14, w + 4, 14);
+      ctx.fillStyle = '#8ab4d4';
+      ctx.fillRect(x, h - 10, w, 6);
+
+      ctx.shadowBlur = 0;
+      const milkGrad = ctx.createLinearGradient(x + off + 4, 20, x + tw - off - 4, 20);
+      milkGrad.addColorStop(0, '#f0faff');
+      milkGrad.addColorStop(0.5, '#ffffff');
+      milkGrad.addColorStop(1, '#daeef8');
+      ctx.fillStyle = milkGrad;
+      ctx.beginPath();
+      ctx.moveTo(x + off + 4, 16);
+      ctx.lineTo(x + tw - off - 4, 16);
+      ctx.lineTo(x + tw - 4, h - 14);
+      ctx.lineTo(x + 4, h - 14);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = '#6a9fc0';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x + off, 0);
+      ctx.lineTo(x + tw - off, 0);
+      ctx.lineTo(x + tw, h - 10);
+      ctx.lineTo(x, h - 10);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x + off + 6, 8);
+      ctx.lineTo(x + off + 6, h - 16);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(x + tw * 0.58 + i * 5, 28 + i * 16, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ── Inicio y muerte ──
+    function startGame() {
+      score = 0;
+      scoreDisplay.textContent = '0';
+      pipes = [];
+      pipeTimer = 0;
+      particles = [];
+      cookie.y = H / 2;
+      cookie.vy = 0;
+      cookie.angle = 0;
+      state = 'playing';
+      overlay.style.display = 'none';
+      cookie.flap();
+    }
+
+    function die() {
+      state = 'dead';
+      spawnCrumbs(cookie.x, cookie.y);
+      if (score > bestScore) bestScore = score;
+      bestScoreEl.textContent = `Mejor: ${bestScore}`;
+      overlayTitle.textContent = score > 0 ? `🍪 Puntaje: ${score}` : '💔 ¡Fallaste!';
+      const p = overlay.querySelector('p');
+      p.textContent = score >= 10 ? '¡Increíble galletero!' : score >= 5 ? '¡Buen intento!' : 'Esquiva los vasos de leche';
+      startBtn.textContent = '¡Reintentar!';
+      // Esperar a que terminen las partículas antes de mostrar overlay
+      setTimeout(() => { overlay.style.display = 'flex'; }, 600);
+      frameId = requestAnimationFrame(gameLoop);
+    }
+
+    // ── Controles ──
+    function handleInput() {
+      if (state === 'playing') cookie.flap();
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        handleInput();
+      }
+    });
+    canvas.addEventListener('click', handleInput);
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); handleInput(); }, { passive: false });
+    startBtn.addEventListener('click', startGame);
+
+    // ── Init ──
+    cookie.init();
+    gameLoop();
+  </script>
+</body>
+</html>
